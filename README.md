@@ -1,4 +1,4 @@
-# Go Web Scraper
+# Go Base Web Scraper
 
 API-only web scraping engine in Go. Submit jobs over HTTP, process them with background workers, and store raw HTML plus metadata in PostgreSQL. There is no dashboard.
 
