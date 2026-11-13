@@ -150,6 +150,14 @@ func stealthPage(browser *rod.Browser) (*rod.Page, error) {
 	return page, nil
 }
 
+// blockedResourcePatterns are not needed to render text content and can
+// dominate a page's bandwidth and load time (often tens of megabytes).
+var blockedResourcePatterns = []string{
+	"*.png", "*.jpg", "*.jpeg", "*.gif", "*.webp", "*.svg", "*.ico", "*.bmp",
+	"*.woff", "*.woff2", "*.ttf", "*.otf", "*.eot",
+	"*.mp4", "*.webm", "*.ogg", "*.mp3", "*.wav", "*.m4a",
+}
+
 func Apply(page *rod.Page, cfg Config) error {
 	w, h := cfg.Viewport[0], cfg.Viewport[1]
 	if err := page.SetViewport(&proto.EmulationSetDeviceMetricsOverride{
@@ -169,6 +177,15 @@ func Apply(page *rod.Page, cfg Config) error {
 
 	if _, err := page.Eval(stealthJS(w, h)); err != nil {
 		return fmt.Errorf("failed to inject stealth JS: %w", err)
+	}
+
+	// Skip images, fonts and media: they are not part of the extracted HTML
+	// and are the slowest part of most page loads.
+	if err := page.EnableDomain(proto.NetworkEnable{}); err != nil {
+		return fmt.Errorf("enable network domain: %w", err)
+	}
+	if err := page.SetBlockedURLs(blockedResourcePatterns); err != nil {
+		return fmt.Errorf("block heavy resources: %w", err)
 	}
 	return nil
 }
