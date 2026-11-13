@@ -14,6 +14,9 @@ func NewRouter(h Handler) http.Handler {
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Logger)
+	r.Use(middleware.Compress(5))
+	r.Use(APIKeyAuth(h.Config.APIKey))
+	r.Use(RateLimit(h.Config.RateLimitPerMinute))
 	r.Use(cors.Handler(cors.Options{
 		AllowedOrigins: []string{"*"},
 		AllowedMethods: []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
@@ -23,6 +26,7 @@ func NewRouter(h Handler) http.Handler {
 	r.Post("/api/scrape", h.SubmitScrape)
 	r.Get("/api/scrape", h.ListScrapes)
 	r.Get("/api/scrape/{taskID}", h.GetScrape)
+	r.Get("/api/scrape/{taskID}/results/{resultID}/html", h.GetResultHTML)
 	r.Delete("/api/scrape/{taskID}", h.DeleteScrape)
 	r.Get("/api/pdf-images/{taskID}/{filename}", h.ServePDFImage)
 	r.Get("/api/stats", h.GetStats)

@@ -26,6 +26,12 @@ func Extract(html, pageURL string) PageMetadata {
 	if err != nil {
 		return PageMetadata{Headings: []string{}}
 	}
+	return ExtractDoc(doc, pageURL)
+}
+
+// ExtractDoc reads metadata from an already parsed document so callers that
+// also need the DOM do not pay for parsing the same HTML twice.
+func ExtractDoc(doc *goquery.Document, pageURL string) PageMetadata {
 
 	var baseHost string
 	if parsed, err := url.Parse(pageURL); err == nil {

@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 )
 
@@ -32,16 +33,18 @@ func IsBlocked(html string, statusHint *int) bool {
 	return blocked
 }
 
+var (
+	tagPattern    = regexp.MustCompile(`<[^>]*>`)
+	spacePattern  = regexp.MustCompile(`\s+`)
+	scriptPattern = regexp.MustCompile(`(?is)<(script|style)[^>]*>.*?</(script|style)>`)
+)
+
 func BlockReason(html string, statusHint *int) (bool, string) {
 	if statusHint != nil {
 		switch *statusHint {
 		case 403, 429, 503:
 			return true, fmt.Sprintf("http_%d", *statusHint)
 		}
-	}
-
-	if html != "" && len(html) < shortHTMLLimit {
-		return true, "short_html"
 	}
 
 	lower := strings.ToLower(html)
@@ -59,5 +62,19 @@ func BlockReason(html string, statusHint *int) (bool, string) {
 		}
 	}
 
+	// A short response is only suspicious when it has no visible text. Many
+	// legitimate pages are small; treating every short page as blocked burned
+	// retries and produced false failures.
+	if len(html) < shortHTMLLimit && !hasVisibleText(html) {
+		return true, "empty_html"
+	}
+
 	return false, ""
+}
+
+func hasVisibleText(html string) bool {
+	text := scriptPattern.ReplaceAllString(html, " ")
+	text = tagPattern.ReplaceAllString(text, " ")
+	text = spacePattern.ReplaceAllString(text, " ")
+	return strings.TrimSpace(text) != ""
 }

@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -20,7 +21,12 @@ import (
 	"go-base-web-scraper/internal/metadata"
 )
 
-const DefaultImagesDir = "data/pdf_images"
+const (
+	DefaultImagesDir = "data/pdf_images"
+	maxDownloadBytes = 64 << 20
+	maxRenderPages   = 100
+	renderDPI        = 100
+)
 
 func ImagesDir(override string) string {
 	if strings.TrimSpace(override) != "" {
@@ -61,7 +67,7 @@ func ScrapePDF(ctx context.Context, rawURL, taskID, imagesRoot string) ([]crawle
 
 	imageDir := filepath.Join(ImagesDir(imagesRoot), taskID)
 	apiPrefix := "/api/pdf-images/" + taskID
-	parsed, err := parsePDFToMarkdown(body, imageDir, apiPrefix)
+	parsed, err := parsePDFToMarkdown(ctx, body, imageDir, apiPrefix)
 	if err != nil {
 		return nil, err
 	}
@@ -169,7 +175,14 @@ func downloadPDF(ctx context.Context, rawURL string) ([]byte, error) {
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, fmt.Errorf("PDF download returned HTTP %d", resp.StatusCode)
 	}
-	return io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxDownloadBytes+1))
+	if err != nil {
+		return nil, fmt.Errorf("PDF download failed: %w", err)
+	}
+	if len(body) > maxDownloadBytes {
+		return nil, fmt.Errorf("PDF exceeds the %d MiB download limit", maxDownloadBytes>>20)
+	}
+	return body, nil
 }
 
 type parseResult struct {
@@ -178,7 +191,7 @@ type parseResult struct {
 	ImagesCount int
 }
 
-func parsePDFToMarkdown(pdfBytes []byte, imageDir, urlPrefix string) (parseResult, error) {
+func parsePDFToMarkdown(ctx context.Context, pdfBytes []byte, imageDir, urlPrefix string) (parseResult, error) {
 	tmp, err := os.CreateTemp("", "scrape-*.pdf")
 	if err != nil {
 		return parseResult{}, fmt.Errorf("temp file error: %w", err)
@@ -193,7 +206,7 @@ func parsePDFToMarkdown(pdfBytes []byte, imageDir, urlPrefix string) (parseResul
 		return parseResult{}, fmt.Errorf("flush temp: %w", err)
 	}
 
-	cmd := exec.Command("pdftotext", "-layout", tmpPath, "-")
+	cmd := exec.CommandContext(ctx, "pdftotext", "-layout", tmpPath, "-")
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -210,7 +223,7 @@ func parsePDFToMarkdown(pdfBytes []byte, imageDir, urlPrefix string) (parseResul
 	}
 
 	prefix := filepath.Join(imageDir, "page")
-	imgCmd := exec.Command("pdftoppm", "-png", tmpPath, prefix)
+	imgCmd := exec.CommandContext(ctx, "pdftoppm", "-png", "-r", strconv.Itoa(renderDPI), "-f", "1", "-l", strconv.Itoa(maxRenderPages), tmpPath, prefix)
 	if err := imgCmd.Run(); err != nil {
 		// Image extraction is best-effort; keep the text.
 	}

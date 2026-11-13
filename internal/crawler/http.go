@@ -1,6 +1,7 @@
 package crawler
 
 import (
+	"context"
 	"net/url"
 	"strings"
 	"sync"
@@ -8,13 +9,14 @@ import (
 	"time"
 
 	"github.com/gocolly/colly/v2"
-
-	"go-base-web-scraper/internal/metadata"
 )
 
-const requestStartKey = "request_start"
+const (
+	requestStartKey  = "request_start"
+	defaultUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+)
 
-func CrawlHTTP(startURL string, limit uint, mainContent bool) []CrawlResult {
+func CrawlHTTP(ctx context.Context, startURL string, limit uint, mainContent bool) []CrawlResult {
 	if limit == 0 {
 		limit = 10
 	}
@@ -24,11 +26,18 @@ func CrawlHTTP(startURL string, limit uint, mainContent bool) []CrawlResult {
 		return []CrawlResult{}
 	}
 
+	// Allow both the bare host and its www variant. Passing parsed.Host
+	// (which may include a port) or blindly prefixing "www." breaks matching.
+	allowed := []string{parsed.Hostname()}
+	if !strings.HasPrefix(strings.ToLower(parsed.Hostname()), "www.") {
+		allowed = append(allowed, "www."+parsed.Hostname())
+	}
 	c := colly.NewCollector(
-		colly.AllowedDomains(parsed.Host, "www."+parsed.Hostname(), parsed.Hostname()),
-		colly.MaxDepth(int(limit)+2),
+		colly.AllowedDomains(allowed...),
 		colly.Async(false),
 	)
+	c.UserAgent = defaultUserAgent
+	c.SetRequestTimeout(60 * time.Second)
 	c.IgnoreRobotsTxt = false
 	_ = c.Limit(&colly.LimitRule{
 		DomainGlob:  "*",
@@ -43,6 +52,10 @@ func CrawlHTTP(startURL string, limit uint, mainContent bool) []CrawlResult {
 	)
 
 	c.OnRequest(func(r *colly.Request) {
+		if err := ctx.Err(); err != nil {
+			r.Abort()
+			return
+		}
 		r.Ctx.Put(requestStartKey, time.Now())
 	})
 
@@ -65,10 +78,7 @@ func CrawlHTTP(startURL string, limit uint, mainContent bool) []CrawlResult {
 			elapsed = int(time.Since(start).Milliseconds())
 		}
 
-		meta := metadata.Extract(html, r.Request.URL.String())
-		if mainContent {
-			html = MainContentHTML(html)
-		}
+		meta, html := extractHTML(html, r.Request.URL.String(), mainContent)
 
 		mu.Lock()
 		results = append(results, CrawlResult{
@@ -98,7 +108,7 @@ func CrawlHTTP(startURL string, limit uint, mainContent bool) []CrawlResult {
 		if err != nil {
 			return
 		}
-		if abs.Hostname() != parsed.Hostname() {
+		if !sameHost(abs.Hostname(), parsed.Hostname()) {
 			return
 		}
 		if isSkippablePath(abs.Path) {

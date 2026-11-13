@@ -7,19 +7,26 @@ API-only web scraping engine in Go. Submit jobs over HTTP, process them with bac
 ```
 Client  --POST /api/scrape-->  Chi API  --INSERT job-->  PostgreSQL
                                   |                      ^
-                                  | LPUSH task_id        | results + status
+                                  | XADD task_id         | results + status
                                   v                      |
-                                Redis  --BRPOP-->  Workers
-                                                     |
-                                                     +-- scrape/crawl: Chromium (Rod + stealth)
-                                                     +-- http: Colly
-                                                     +-- PDF: pdftotext / pdftoppm
+                          Redis Streams  --XREADGROUP-->  Workers
+                           (consumer group,              |
+                            ack + reclaim)               +-- scrape/crawl: Chromium (Rod + stealth)
+                                                         +-- http: Colly
+                                                         +-- PDF: pdftotext / pdftoppm
 ```
 
 - **API** (`:9000`) — submit, poll, list, and delete scrape jobs
-- **Redis** — job queue (`scrape:queue`, LPUSH/BRPOP)
+- **Redis** — job stream (`scrape:stream`) with a consumer group; tasks stay pending until acknowledged and are reclaimed if a worker dies
 - **PostgreSQL** — jobs and page results
-- **Workers** — goroutines that pick jobs and scrape
+- **Workers** — goroutines that pick jobs and scrape; in-flight jobs drain on shutdown and interrupted jobs are requeued on startup
+
+## Security
+
+- Only `http`/`https` URLs that resolve to public addresses are accepted (SSRF guard); loopback, private, link-local, CGNAT, and cloud metadata ranges are rejected.
+- Set `API_KEY` to require `X-API-Key: <key>` or `Authorization: Bearer <key>` on all endpoints except `/api/health`.
+- `RATE_LIMIT_PER_MINUTE` caps job submissions and cleanups per client IP.
+- Scraped HTML is served as an attachment with a sandboxed CSP.
 
 
 
@@ -81,6 +88,10 @@ curl http://localhost:9000/api/scrape/{task_id}
 | `DIRECT_RETRIES`                     | `1`                                                                 | Direct browser retries                          |
 | `PROXY_RETRIES`                      | `1`                                                                 | Proxy retries                                   |
 | `RETRY_DELAY_SECS`                   | `20`                                                                | Delay between retries                           |
+| `JOB_TIMEOUT_SECS`                   | `300`                                                               | Maximum runtime of one job                      |
+| `SHUTDOWN_GRACE_SECS`                | `20`                                                                | Time in-flight jobs get to finish on shutdown   |
+| `API_KEY`                            | —                                                                   | Require `X-API-Key`/Bearer auth when set        |
+| `RATE_LIMIT_PER_MINUTE`              | `120`                                                               | Job submissions/cleanups per IP (0 disables)    |
 | `LOG_LEVEL`                          | `info`                                                              | `debug`, `info`, `warn`, `error`                |
 
 
@@ -128,9 +139,9 @@ Response `202 Accepted`:
 
 
 
-### Get job — `GET /api/scrape/{task_id}`
+### Get job — `GET /api/scrape/{task_id}?include_html=false`
 
-Returns status, timestamps, raw HTML, metadata, and assets.
+Returns status, timestamps, metadata, and assets. Raw HTML is omitted by default because pages can be several megabytes; pass `include_html=true` to inline it, or fetch one result from the raw HTML endpoint below.
 
 ```json
 {
@@ -139,6 +150,7 @@ Returns status, timestamps, raw HTML, metadata, and assets.
   "duration_ms": 11840,
   "results": [
     {
+      "id": 1,
       "url": "https://example.com/article",
       "html": "<!DOCTYPE html>...",
       "html_bytes": 1328897,
@@ -161,6 +173,10 @@ PDF jobs store extracted text in `html` (there is no source markup).
 
 Statuses: `queued` → `running` → `completed` | `failed`
 
+### Raw HTML — `GET /api/scrape/{task_id}/results/{result_id}/html`
+
+Streams one result's stored markup as a sandboxed attachment. `result_id` is the `id` returned in the results array.
+
 ### Delete job — `DELETE /api/scrape/{task_id}`
 
 Removes the job, results, and extracted PDF images.
@@ -181,9 +197,9 @@ Queue depth, running/queued counts, recent activity.
 
 Health, redacted config, recent failed jobs.
 
-### Cleanup — `POST /api/cleanup?mode=orphaned|all`
+### Cleanup — `POST /api/cleanup?mode=orphaned|all|expired`
 
-Deletes orphaned or all PDF image directories.
+Deletes orphaned or all PDF image directories. `mode=expired&days=30` deletes jobs older than `days` (default 30) together with their results and images.
 
 ### Health — `GET /api/health`
 
@@ -199,7 +215,7 @@ Deletes orphaned or all PDF image directories.
 
 ## Local development
 
-Requires Go 1.23+, Redis, PostgreSQL, Chromium (for scrape/crawl), and poppler-utils (for PDF).
+Requires Go 1.25+, Redis, PostgreSQL, Chromium (for scrape/crawl), and poppler-utils (for PDF).
 
 ```bash
 cp .env.example .env

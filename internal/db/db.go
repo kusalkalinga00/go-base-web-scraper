@@ -18,6 +18,9 @@ import (
 	"go-base-web-scraper/migrations"
 )
 
+// ErrNotFound is returned when a requested job does not exist.
+var ErrNotFound = errors.New("not found")
+
 func Connect(ctx context.Context, databaseURL string) (*pgxpool.Pool, error) {
 	cfg, err := pgxpool.ParseConfig(databaseURL)
 	if err != nil {
@@ -134,6 +137,7 @@ type JobResult struct {
 	JobID          string
 	URL            string
 	HTML           string
+	HTMLBytes      int
 	Title          *string
 	Description    *string
 	Language       *string
@@ -152,14 +156,14 @@ type JobResult struct {
 }
 
 type JobStats struct {
-	Total              int64   `json:"total"`
-	Queued             int64   `json:"queued"`
-	Running            int64   `json:"running"`
-	Completed          int64   `json:"completed"`
-	Failed             int64   `json:"failed"`
-	TotalPagesCrawled  int64   `json:"total_pages_crawled"`
-	AvgResponseTimeMS  float64 `json:"avg_response_time_ms"`
-	TotalResults       int64   `json:"total_results"`
+	Total             int64   `json:"total"`
+	Queued            int64   `json:"queued"`
+	Running           int64   `json:"running"`
+	Completed         int64   `json:"completed"`
+	Failed            int64   `json:"failed"`
+	TotalPagesCrawled int64   `json:"total_pages_crawled"`
+	AvgResponseTimeMS float64 `json:"avg_response_time_ms"`
+	TotalResults      int64   `json:"total_results"`
 }
 
 type RecentActivity struct {
@@ -189,7 +193,7 @@ func GetJob(ctx context.Context, pool *pgxpool.Pool, id string) (Job, error) {
 	row := pool.QueryRow(ctx, `SELECT id, url, mode, page_limit, wait_seconds, status, error, pages_crawled, created_at, started_at, completed_at, main_content FROM jobs WHERE id = $1`, id)
 	job, err := scanJob(row)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return Job{}, fmt.Errorf("job %s not found", id)
+		return Job{}, fmt.Errorf("job %s: %w", id, ErrNotFound)
 	}
 	return job, err
 }
@@ -237,6 +241,16 @@ func UpdateJobStatus(ctx context.Context, pool *pgxpool.Pool, id, status string,
 	}
 }
 
+// ResetRunningJobs marks jobs left in the running state by a previous process
+// as queued again. Their queue messages are recovered separately.
+func ResetRunningJobs(ctx context.Context, pool *pgxpool.Pool) (int64, error) {
+	tag, err := pool.Exec(ctx, `UPDATE jobs SET status = 'queued', started_at = NULL WHERE status = 'running'`)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
+}
+
 func UpdatePagesCrawled(ctx context.Context, pool *pgxpool.Pool, id string, count int) error {
 	_, err := pool.Exec(ctx, `UPDATE jobs SET pages_crawled = $1 WHERE id = $2`, count, id)
 	return err
@@ -262,13 +276,21 @@ func InsertResult(ctx context.Context, pool *pgxpool.Pool, jobID, rawURL, html s
 	return err
 }
 
-func GetResults(ctx context.Context, pool *pgxpool.Pool, jobID string) ([]JobResult, error) {
-	rows, err := pool.Query(ctx, `
-		SELECT id, job_id, url, html, title, description, language, canonical_url, og_image, favicon,
+func GetResults(ctx context.Context, pool *pgxpool.Pool, jobID string, includeHTML bool) ([]JobResult, error) {
+	// Avoid transferring potentially multi-megabyte HTML when the caller only
+	// wants metadata.
+	htmlColumn := "''"
+	if includeHTML {
+		htmlColumn = "html"
+	}
+	query := fmt.Sprintf(`
+		SELECT id, job_id, url, %s, octet_length(html), title, description, language, canonical_url, og_image, favicon,
 			word_count, links_internal, links_external, images_count, headings, response_time_ms,
 			used_proxy, crawled_at, assets
 		FROM results WHERE job_id = $1 ORDER BY id
-	`, jobID)
+	`, htmlColumn)
+
+	rows, err := pool.Query(ctx, query, jobID)
 	if err != nil {
 		return nil, err
 	}
@@ -279,7 +301,7 @@ func GetResults(ctx context.Context, pool *pgxpool.Pool, jobID string) ([]JobRes
 		var r JobResult
 		var headings []byte
 		if err := rows.Scan(
-			&r.ID, &r.JobID, &r.URL, &r.HTML, &r.Title, &r.Description, &r.Language, &r.CanonicalURL, &r.OGImage, &r.Favicon,
+			&r.ID, &r.JobID, &r.URL, &r.HTML, &r.HTMLBytes, &r.Title, &r.Description, &r.Language, &r.CanonicalURL, &r.OGImage, &r.Favicon,
 			&r.WordCount, &r.LinksInternal, &r.LinksExternal, &r.ImagesCount, &headings, &r.ResponseTimeMS,
 			&r.UsedProxy, &r.CrawledAt, &r.AssetsJSON,
 		); err != nil {
@@ -297,6 +319,16 @@ func GetResults(ctx context.Context, pool *pgxpool.Pool, jobID string) ([]JobRes
 		results = []JobResult{}
 	}
 	return results, rows.Err()
+}
+
+// GetResultHTML returns the stored markup for one result.
+func GetResultHTML(ctx context.Context, pool *pgxpool.Pool, jobID string, resultID int64) (string, error) {
+	var html string
+	err := pool.QueryRow(ctx, `SELECT html FROM results WHERE id = $1 AND job_id = $2`, resultID, jobID).Scan(&html)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", fmt.Errorf("result %d: %w", resultID, ErrNotFound)
+	}
+	return html, err
 }
 
 func GetStats(ctx context.Context, pool *pgxpool.Pool) (JobStats, error) {
@@ -386,13 +418,33 @@ func GetFailedJobs(ctx context.Context, pool *pgxpool.Pool, limit int) ([]Job, e
 	return jobs, rows.Err()
 }
 
+// DeleteJobsBefore removes jobs created before the given time and returns
+// their IDs so callers can clean up per-job files.
+func DeleteJobsBefore(ctx context.Context, pool *pgxpool.Pool, before time.Time) ([]string, error) {
+	rows, err := pool.Query(ctx, `DELETE FROM jobs WHERE created_at < $1 AND status <> 'running' RETURNING id`, before)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
 func DeleteJob(ctx context.Context, pool *pgxpool.Pool, id string) error {
 	tag, err := pool.Exec(ctx, `DELETE FROM jobs WHERE id = $1`, id)
 	if err != nil {
 		return err
 	}
 	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("job %s not found", id)
+		return fmt.Errorf("job %s: %w", id, ErrNotFound)
 	}
 	return nil
 }

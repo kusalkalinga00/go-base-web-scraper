@@ -2,10 +2,20 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"go-base-web-scraper/internal/crawler"
 	"go-base-web-scraper/internal/db"
+)
+
+const (
+	// MaxPageLimit caps how many pages one crawl can fetch.
+	MaxPageLimit = 1000
+	// MaxWaitSeconds caps the JS wait applied to every browser navigation.
+	MaxWaitSeconds = 60
+	// MaxListLimit caps the page size of list endpoints.
+	MaxListLimit = 200
 )
 
 type ScrapeRequest struct {
@@ -14,6 +24,16 @@ type ScrapeRequest struct {
 	Limit       *int   `json:"limit"`
 	WaitSeconds *int   `json:"wait_seconds"`
 	MainContent bool   `json:"main_content"`
+}
+
+func (r ScrapeRequest) validate() error {
+	if r.Limit != nil && (*r.Limit < 1 || *r.Limit > MaxPageLimit) {
+		return fmt.Errorf("limit must be between 1 and %d", MaxPageLimit)
+	}
+	if r.WaitSeconds != nil && (*r.WaitSeconds < 0 || *r.WaitSeconds > MaxWaitSeconds) {
+		return fmt.Errorf("wait_seconds must be between 0 and %d", MaxWaitSeconds)
+	}
+	return nil
 }
 
 func (r *ScrapeRequest) defaults() {
@@ -67,8 +87,9 @@ type ResultMetadata struct {
 }
 
 type ResultItem struct {
+	ID             int64           `json:"id"`
 	URL            string          `json:"url"`
-	HTML           string          `json:"html"`
+	HTML           string          `json:"html,omitempty"`
 	HTMLBytes      int             `json:"html_bytes"`
 	ResponseTimeMS int             `json:"response_time_ms"`
 	Metadata       ResultMetadata  `json:"metadata"`
@@ -134,13 +155,14 @@ type SystemInfoResponse struct {
 type CleanupResponse struct {
 	RemovedCount uint32 `json:"removed_count"`
 	FreedBytes   uint64 `json:"freed_bytes"`
+	JobsRemoved  int    `json:"jobs_removed,omitempty"`
 }
 
 type errorResponse struct {
 	Error string `json:"error"`
 }
 
-func jobDetailFrom(job db.Job, results []db.JobResult) JobDetailResponse {
+func jobDetailFrom(job db.Job, results []db.JobResult, includeHTML bool) JobDetailResponse {
 	items := make([]ResultItem, 0, len(results))
 	for _, r := range results {
 		assets := []crawler.Asset{}
@@ -154,10 +176,10 @@ func jobDetailFrom(job db.Job, results []db.JobResult) JobDetailResponse {
 		if headings == nil {
 			headings = []string{}
 		}
-		items = append(items, ResultItem{
+		item := ResultItem{
+			ID:             r.ID,
 			URL:            r.URL,
-			HTML:           r.HTML,
-			HTMLBytes:      len(r.HTML),
+			HTMLBytes:      r.HTMLBytes,
 			ResponseTimeMS: r.ResponseTimeMS,
 			Metadata: ResultMetadata{
 				Title:         r.Title,
@@ -175,7 +197,11 @@ func jobDetailFrom(job db.Job, results []db.JobResult) JobDetailResponse {
 				CrawledAt:     r.CrawledAt.UTC().Format(time.RFC3339),
 			},
 			Assets: assets,
-		})
+		}
+		if includeHTML {
+			item.HTML = r.HTML
+		}
+		items = append(items, item)
 	}
 
 	return JobDetailResponse{

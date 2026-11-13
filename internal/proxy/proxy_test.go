@@ -9,9 +9,12 @@ func TestIsBlocked(t *testing.T) {
 	if IsBlocked("<html>"+string(make([]byte, 600))+"</html>", nil) {
 		t.Fatal("normal html should not be blocked")
 	}
-	short := "<html>hi</html>"
-	if !IsBlocked(short, nil) {
-		t.Fatal("short html should be treated as blocked")
+	short := "<html><body><h1>Small but real page</h1></body></html>"
+	if IsBlocked(short, nil) {
+		t.Fatal("short page with visible text should not be blocked")
+	}
+	if !IsBlocked("<html><body><script>boot()</script></body></html>", nil) {
+		t.Fatal("short page without visible text should be treated as blocked")
 	}
 	code := 403
 	if !IsBlocked("ok content that is long enough to pass the length check.....", &code) {
