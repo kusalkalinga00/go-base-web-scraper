@@ -28,10 +28,15 @@ type Handler struct {
 	Config config.Config
 }
 
+const maxSubmitBodyBytes = 1 << 20 // 1 MiB is plenty for a URL and a few options.
+
 func (h Handler) SubmitScrape(w http.ResponseWriter, r *http.Request) {
 	var req ScrapeRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "Invalid JSON")
+	r.Body = http.MaxBytesReader(w, r.Body, maxSubmitBodyBytes)
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid JSON: "+err.Error())
 		return
 	}
 	req.defaults()
