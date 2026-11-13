@@ -21,6 +21,7 @@ services:
       - DIRECT_RETRIES=${DIRECT_RETRIES:-3}
       - PROXY_RETRIES=${PROXY_RETRIES:-2}
       - RETRY_DELAY_SECS=${RETRY_DELAY_SECS:-20}
+      - JOB_TIMEOUT_SECS=${JOB_TIMEOUT_SECS:-300}
       - LOG_LEVEL=${LOG_LEVEL:-info}
     depends_on:
       redis:

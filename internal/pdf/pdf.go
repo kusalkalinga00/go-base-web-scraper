@@ -61,7 +61,7 @@ func ScrapePDF(ctx context.Context, rawURL, taskID, imagesRoot string) ([]crawle
 
 	imageDir := filepath.Join(ImagesDir(imagesRoot), taskID)
 	apiPrefix := "/api/pdf-images/" + taskID
-	parsed, err := parsePDFToMarkdown(body, imageDir, apiPrefix)
+	parsed, err := parsePDFToMarkdown(ctx, body, imageDir, apiPrefix)
 	if err != nil {
 		return nil, err
 	}
@@ -178,7 +178,7 @@ type parseResult struct {
 	ImagesCount int
 }
 
-func parsePDFToMarkdown(pdfBytes []byte, imageDir, urlPrefix string) (parseResult, error) {
+func parsePDFToMarkdown(ctx context.Context, pdfBytes []byte, imageDir, urlPrefix string) (parseResult, error) {
 	tmp, err := os.CreateTemp("", "scrape-*.pdf")
 	if err != nil {
 		return parseResult{}, fmt.Errorf("temp file error: %w", err)
@@ -193,7 +193,7 @@ func parsePDFToMarkdown(pdfBytes []byte, imageDir, urlPrefix string) (parseResul
 		return parseResult{}, fmt.Errorf("flush temp: %w", err)
 	}
 
-	cmd := exec.Command("pdftotext", "-layout", tmpPath, "-")
+	cmd := exec.CommandContext(ctx, "pdftotext", "-layout", tmpPath, "-")
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -210,7 +210,7 @@ func parsePDFToMarkdown(pdfBytes []byte, imageDir, urlPrefix string) (parseResul
 	}
 
 	prefix := filepath.Join(imageDir, "page")
-	imgCmd := exec.Command("pdftoppm", "-png", tmpPath, prefix)
+	imgCmd := exec.CommandContext(ctx, "pdftoppm", "-png", tmpPath, prefix)
 	if err := imgCmd.Run(); err != nil {
 		// Image extraction is best-effort; keep the text.
 	}

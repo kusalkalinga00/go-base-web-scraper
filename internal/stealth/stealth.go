@@ -1,6 +1,7 @@
 package stealth
 
 import (
+	"context"
 	"fmt"
 	"math/rand"
 	"net/url"
@@ -172,7 +173,8 @@ func Apply(page *rod.Page, cfg Config) error {
 	return nil
 }
 
-func Navigate(page *rod.Page, rawURL string, waitSecs uint64, cfg Config) (string, error) {
+func Navigate(ctx context.Context, page *rod.Page, rawURL string, waitSecs uint64, cfg Config) (string, error) {
+	page = page.Context(ctx)
 	if err := page.Navigate(rawURL); err != nil {
 		return "", fmt.Errorf("navigation failed: %w", err)
 	}
@@ -181,7 +183,13 @@ func Navigate(page *rod.Page, rawURL string, waitSecs uint64, cfg Config) (strin
 	}
 
 	if waitSecs > 0 {
-		time.Sleep(time.Duration(waitSecs) * time.Second)
+		timer := time.NewTimer(time.Duration(waitSecs) * time.Second)
+		defer timer.Stop()
+		select {
+		case <-timer.C:
+		case <-ctx.Done():
+			return "", ctx.Err()
+		}
 	}
 
 	if _, err := page.Element("body"); err != nil {

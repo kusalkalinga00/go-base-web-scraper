@@ -80,9 +80,10 @@ func process(ctx context.Context, pool *pgxpool.Pool, cfg config.Config, workerI
 		return
 	}
 
-	// Re-validate here as well: jobs can be queued by older API versions or
-	// injected straight into Redis.
-	if _, err := urlguard.Validate(ctx, job.URL); err != nil {
+	jobCtx, cancel := context.WithTimeout(ctx, cfg.JobTimeout)
+	defer cancel()
+
+	if _, err := urlguard.Validate(jobCtx, job.URL); err != nil {
 		msg := err.Error()
 		slog.Error("Rejected unsafe job", "task_id", taskID, "err", err)
 		_ = db.UpdateJobStatus(ctx, pool, taskID, "failed", &msg)
@@ -93,7 +94,7 @@ func process(ctx context.Context, pool *pgxpool.Pool, cfg config.Config, workerI
 		slog.Error("Failed to update job status", "err", err)
 	}
 
-	results, jobErr := execute(ctx, cfg, job)
+	results, jobErr := execute(jobCtx, cfg, job)
 	if jobErr != nil {
 		msg := jobErr.Error()
 		slog.Error("Job failed", "task_id", taskID, "err", jobErr)
@@ -124,11 +125,11 @@ func execute(ctx context.Context, cfg config.Config, job db.Job) ([]crawler.Craw
 
 	switch job.Mode {
 	case "scrape":
-		return crawler.ScrapeSingle(job.URL, uint64(job.WaitSeconds), cfg.ProxyURL, cfg.ProxyMode, cfg.Retry, job.MainContent, cfg.ChromePath)
+		return crawler.ScrapeSingle(ctx, job.URL, uint64(job.WaitSeconds), cfg.ProxyURL, cfg.ProxyMode, cfg.Retry, job.MainContent, cfg.ChromePath)
 	case "crawl":
-		return crawler.CrawlBrowser(job.URL, uint(job.PageLimit), uint64(job.WaitSeconds), cfg.ProxyURL, cfg.ProxyMode, cfg.Retry, job.MainContent, cfg.ChromePath)
+		return crawler.CrawlBrowser(ctx, job.URL, uint(job.PageLimit), uint64(job.WaitSeconds), cfg.ProxyURL, cfg.ProxyMode, cfg.Retry, job.MainContent, cfg.ChromePath)
 	case "http":
-		return crawler.CrawlHTTP(job.URL, uint(job.PageLimit), job.MainContent), nil
+		return crawler.CrawlHTTP(ctx, job.URL, uint(job.PageLimit), job.MainContent), nil
 	default:
 		return nil, errors.New("unknown mode")
 	}

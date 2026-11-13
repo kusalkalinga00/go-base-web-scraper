@@ -6,6 +6,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type ProxyMode string
@@ -36,18 +37,19 @@ type Config struct {
 	Retry        RetryConfig
 	PDFImagesDir string
 	ChromePath   string
+	JobTimeout   time.Duration
 }
 
 func FromEnv() Config {
 	proxyURL := buildProxyURL()
 
 	return Config{
-		Port:         envUint16("PORT", 9000),
-		RedisURL:     envString("REDIS_URL", "redis://127.0.0.1:6379"),
-		DatabaseURL:  envString("DATABASE_URL", "postgres://scraper:scraper@127.0.0.1:5432/scraper?sslmode=disable"),
-		ProxyURL:     proxyURL,
-		ProxyMode:    proxyModeFromEnv(),
-		MaxWorkers:   envInt("MAX_WORKERS", 3),
+		Port:        envUint16("PORT", 9000),
+		RedisURL:    envString("REDIS_URL", "redis://127.0.0.1:6379"),
+		DatabaseURL: envString("DATABASE_URL", "postgres://scraper:scraper@127.0.0.1:5432/scraper?sslmode=disable"),
+		ProxyURL:    proxyURL,
+		ProxyMode:   proxyModeFromEnv(),
+		MaxWorkers:  envInt("MAX_WORKERS", 3),
 		Retry: RetryConfig{
 			DirectRetries:  envUint("DIRECT_RETRIES", 1),
 			ProxyRetries:   envUint("PROXY_RETRIES", 1),
@@ -55,6 +57,7 @@ func FromEnv() Config {
 		},
 		PDFImagesDir: envString("PDF_IMAGES_DIR", "data/pdf_images"),
 		ChromePath:   os.Getenv("CHROME_PATH"),
+		JobTimeout:   time.Duration(envUint64("JOB_TIMEOUT_SECS", 300)) * time.Second,
 	}
 }
 

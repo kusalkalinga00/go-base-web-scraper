@@ -1,6 +1,7 @@
 package crawler
 
 import (
+	"context"
 	"net/url"
 	"strings"
 	"sync"
@@ -12,9 +13,12 @@ import (
 	"go-base-web-scraper/internal/metadata"
 )
 
-const requestStartKey = "request_start"
+const (
+	requestStartKey  = "request_start"
+	defaultUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+)
 
-func CrawlHTTP(startURL string, limit uint, mainContent bool) []CrawlResult {
+func CrawlHTTP(ctx context.Context, startURL string, limit uint, mainContent bool) []CrawlResult {
 	if limit == 0 {
 		limit = 10
 	}
@@ -29,6 +33,8 @@ func CrawlHTTP(startURL string, limit uint, mainContent bool) []CrawlResult {
 		colly.MaxDepth(int(limit)+2),
 		colly.Async(false),
 	)
+	c.UserAgent = defaultUserAgent
+	c.SetRequestTimeout(60 * time.Second)
 	c.IgnoreRobotsTxt = false
 	_ = c.Limit(&colly.LimitRule{
 		DomainGlob:  "*",
@@ -43,6 +49,10 @@ func CrawlHTTP(startURL string, limit uint, mainContent bool) []CrawlResult {
 	)
 
 	c.OnRequest(func(r *colly.Request) {
+		if err := ctx.Err(); err != nil {
+			r.Abort()
+			return
+		}
 		r.Ctx.Put(requestStartKey, time.Now())
 	})
 

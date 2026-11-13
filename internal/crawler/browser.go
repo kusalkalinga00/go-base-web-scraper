@@ -1,6 +1,7 @@
 package crawler
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"math/rand"
@@ -31,9 +32,9 @@ type CrawlResult struct {
 	Assets         []Asset
 }
 
-func ScrapeSingle(rawURL string, waitSecs uint64, proxyURL *string, proxyMode config.ProxyMode, retry config.RetryConfig, mainContent bool, chromePath string) ([]CrawlResult, error) {
+func ScrapeSingle(ctx context.Context, rawURL string, waitSecs uint64, proxyURL *string, proxyMode config.ProxyMode, retry config.RetryConfig, mainContent bool, chromePath string) ([]CrawlResult, error) {
 	start := time.Now()
-	html, usedProxy, err := fetchHTMLWithRetry(rawURL, waitSecs, proxyURL, proxyMode, retry, chromePath)
+	html, usedProxy, err := fetchHTMLWithRetry(ctx, rawURL, waitSecs, proxyURL, proxyMode, retry, chromePath)
 	if err != nil {
 		return nil, err
 	}
@@ -41,7 +42,7 @@ func ScrapeSingle(rawURL string, waitSecs uint64, proxyURL *string, proxyMode co
 	return []CrawlResult{buildResult(rawURL, html, mainContent, int(time.Since(start).Milliseconds()), usedProxy)}, nil
 }
 
-func CrawlBrowser(startURL string, limit uint, waitSecs uint64, proxyURL *string, proxyMode config.ProxyMode, retry config.RetryConfig, mainContent bool, chromePath string) ([]CrawlResult, error) {
+func CrawlBrowser(ctx context.Context, startURL string, limit uint, waitSecs uint64, proxyURL *string, proxyMode config.ProxyMode, retry config.RetryConfig, mainContent bool, chromePath string) ([]CrawlResult, error) {
 	baseHost := hostOf(startURL)
 	useProxyDirectly := proxyMode == config.ProxyAlways && proxyURL != nil
 
@@ -67,6 +68,9 @@ func CrawlBrowser(startURL string, limit uint, waitSecs uint64, proxyURL *string
 	var results []CrawlResult
 
 	for len(queue) > 0 && len(results) < int(limit) {
+		if err := ctx.Err(); err != nil {
+			break
+		}
 		raw := queue[0]
 		queue = queue[1:]
 		normalized := normalizeURL(raw)
@@ -77,7 +81,7 @@ func CrawlBrowser(startURL string, limit uint, waitSecs uint64, proxyURL *string
 
 		slog.Info("Fetching", "url", raw)
 		start := time.Now()
-		html, err := stealth.Navigate(page, raw, waitSecs, cfg)
+		html, err := stealth.Navigate(ctx, page, raw, waitSecs, cfg)
 		if err != nil {
 			slog.Warn("Skip page", "url", raw, "err", err)
 			continue
@@ -86,7 +90,7 @@ func CrawlBrowser(startURL string, limit uint, waitSecs uint64, proxyURL *string
 		if blocked, reason := proxy.BlockReason(html, nil); blocked && !useProxyDirectly {
 			slog.Warn("Blocked", "url", raw, "html_bytes", len(html), "reason", reason)
 			if proxyMode == config.ProxyFallback && proxyURL != nil {
-				if proxyHTML, ferr := fetchViaProxy(raw, waitSecs, proxyURL, retry, chromePath); ferr == nil {
+				if proxyHTML, ferr := fetchViaProxy(ctx, raw, waitSecs, proxyURL, retry, chromePath); ferr == nil {
 					results = append(results, buildResult(raw, proxyHTML, mainContent, int(time.Since(start).Milliseconds()), true))
 					queue = append(queue, extractSameHostLinks(proxyHTML, raw, baseHost, visited)...)
 				} else {
@@ -104,7 +108,11 @@ func CrawlBrowser(startURL string, limit uint, waitSecs uint64, proxyURL *string
 		}
 
 		delay := time.Duration(1000+rand.Intn(2000)) * time.Millisecond
-		time.Sleep(delay)
+		select {
+		case <-time.After(delay):
+		case <-ctx.Done():
+			break
+		}
 	}
 
 	if results == nil {
@@ -113,15 +121,15 @@ func CrawlBrowser(startURL string, limit uint, waitSecs uint64, proxyURL *string
 	return results, nil
 }
 
-func fetchHTMLWithRetry(rawURL string, waitSecs uint64, proxyURL *string, proxyMode config.ProxyMode, retry config.RetryConfig, chromePath string) (string, bool, error) {
+func fetchHTMLWithRetry(ctx context.Context, rawURL string, waitSecs uint64, proxyURL *string, proxyMode config.ProxyMode, retry config.RetryConfig, chromePath string) (string, bool, error) {
 	delay := time.Duration(retry.RetryDelaySecs) * time.Second
 
 	if proxyMode == config.ProxyAlways && proxyURL != nil {
-		html, err := retryNavigate(rawURL, waitSecs, proxyURL, retry.ProxyRetries, delay, chromePath, true)
+		html, err := retryNavigate(ctx, rawURL, waitSecs, proxyURL, retry.ProxyRetries, delay, chromePath, true)
 		return html, true, err
 	}
 
-	html, err := retryNavigate(rawURL, waitSecs, nil, retry.DirectRetries, delay, chromePath, false)
+	html, err := retryNavigate(ctx, rawURL, waitSecs, nil, retry.DirectRetries, delay, chromePath, false)
 	if err == nil {
 		return html, false, nil
 	}
@@ -131,20 +139,20 @@ func fetchHTMLWithRetry(rawURL string, waitSecs uint64, proxyURL *string, proxyM
 			return "", false, fmt.Errorf("blocked and no proxy configured")
 		}
 		slog.Warn("Direct attempts failed, falling back to proxy", "url", rawURL, "err", err)
-		html, perr := retryNavigate(rawURL, waitSecs, proxyURL, retry.ProxyRetries, delay, chromePath, true)
+		html, perr := retryNavigate(ctx, rawURL, waitSecs, proxyURL, retry.ProxyRetries, delay, chromePath, true)
 		return html, true, perr
 	}
 
 	return "", false, fmt.Errorf("blocked on %s after %d attempts (proxy mode: never): %w", rawURL, retry.DirectRetries, err)
 }
 
-func retryNavigate(rawURL string, waitSecs uint64, proxyURL *string, attempts uint, delay time.Duration, chromePath string, viaProxy bool) (string, error) {
+func retryNavigate(ctx context.Context, rawURL string, waitSecs uint64, proxyURL *string, attempts uint, delay time.Duration, chromePath string, viaProxy bool) (string, error) {
 	if attempts == 0 {
 		attempts = 1
 	}
 	var lastErr error
 	for attempt := uint(1); attempt <= attempts; attempt++ {
-		html, err := navigateOnce(rawURL, waitSecs, proxyURL, chromePath)
+		html, err := navigateOnce(ctx, rawURL, waitSecs, proxyURL, chromePath)
 		if err == nil {
 			if blocked, reason := proxy.BlockReason(html, nil); blocked {
 				kind := "direct"
@@ -171,13 +179,17 @@ func retryNavigate(rawURL string, waitSecs uint64, proxyURL *string, attempts ui
 				kind = "proxy"
 			}
 			slog.Info("Retrying", "kind", kind, "attempt", attempt, "total", attempts, "url", rawURL)
-			time.Sleep(delay)
+			select {
+			case <-time.After(delay):
+			case <-ctx.Done():
+				return "", ctx.Err()
+			}
 		}
 	}
 	return "", lastErr
 }
 
-func navigateOnce(rawURL string, waitSecs uint64, proxyURL *string, chromePath string) (string, error) {
+func navigateOnce(ctx context.Context, rawURL string, waitSecs uint64, proxyURL *string, chromePath string) (string, error) {
 	cfg := stealth.NewConfig()
 	cfg.ChromePath = chromePath
 	if proxyURL != nil {
@@ -193,12 +205,12 @@ func navigateOnce(rawURL string, waitSecs uint64, proxyURL *string, chromePath s
 	if err != nil {
 		return "", err
 	}
-	return stealth.Navigate(page, rawURL, waitSecs, cfg)
+	return stealth.Navigate(ctx, page, rawURL, waitSecs, cfg)
 }
 
-func fetchViaProxy(rawURL string, waitSecs uint64, proxyURL *string, retry config.RetryConfig, chromePath string) (string, error) {
+func fetchViaProxy(ctx context.Context, rawURL string, waitSecs uint64, proxyURL *string, retry config.RetryConfig, chromePath string) (string, error) {
 	delay := time.Duration(retry.RetryDelaySecs) * time.Second
-	return retryNavigate(rawURL, waitSecs, proxyURL, retry.ProxyRetries, delay, chromePath, true)
+	return retryNavigate(ctx, rawURL, waitSecs, proxyURL, retry.ProxyRetries, delay, chromePath, true)
 }
 
 func buildResult(rawURL, html string, mainContent bool, elapsed int, usedProxy bool) CrawlResult {
