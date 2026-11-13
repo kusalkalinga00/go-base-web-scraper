@@ -61,6 +61,10 @@ func (h Handler) SubmitScrape(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := queue.Enqueue(r.Context(), h.Redis, taskID); err != nil {
+		// The job row exists but will never be picked up; mark it failed so it
+		// does not linger as "queued" forever.
+		msg := "failed to enqueue job: " + err.Error()
+		_ = db.UpdateJobStatus(r.Context(), h.DB, taskID, "failed", &msg)
 		writeInternalError(w, r, err)
 		return
 	}
