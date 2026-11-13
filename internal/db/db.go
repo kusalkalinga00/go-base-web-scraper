@@ -421,7 +421,7 @@ func GetFailedJobs(ctx context.Context, pool *pgxpool.Pool, limit int) ([]Job, e
 // DeleteJobsBefore removes jobs created before the given time and returns
 // their IDs so callers can clean up per-job files.
 func DeleteJobsBefore(ctx context.Context, pool *pgxpool.Pool, before time.Time) ([]string, error) {
-	rows, err := pool.Query(ctx, `DELETE FROM jobs WHERE created_at < $1 RETURNING id`, before)
+	rows, err := pool.Query(ctx, `DELETE FROM jobs WHERE created_at < $1 AND status <> 'running' RETURNING id`, before)
 	if err != nil {
 		return nil, err
 	}
