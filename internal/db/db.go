@@ -18,6 +18,9 @@ import (
 	"go-base-web-scraper/migrations"
 )
 
+// ErrNotFound is returned when a requested job does not exist.
+var ErrNotFound = errors.New("not found")
+
 func Connect(ctx context.Context, databaseURL string) (*pgxpool.Pool, error) {
 	cfg, err := pgxpool.ParseConfig(databaseURL)
 	if err != nil {
@@ -189,7 +192,7 @@ func GetJob(ctx context.Context, pool *pgxpool.Pool, id string) (Job, error) {
 	row := pool.QueryRow(ctx, `SELECT id, url, mode, page_limit, wait_seconds, status, error, pages_crawled, created_at, started_at, completed_at, main_content FROM jobs WHERE id = $1`, id)
 	job, err := scanJob(row)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return Job{}, fmt.Errorf("job %s not found", id)
+		return Job{}, fmt.Errorf("job %s: %w", id, ErrNotFound)
 	}
 	return job, err
 }
@@ -392,7 +395,7 @@ func DeleteJob(ctx context.Context, pool *pgxpool.Pool, id string) error {
 		return err
 	}
 	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("job %s not found", id)
+		return fmt.Errorf("job %s: %w", id, ErrNotFound)
 	}
 	return nil
 }

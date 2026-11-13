@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -47,11 +48,11 @@ func (h Handler) SubmitScrape(w http.ResponseWriter, r *http.Request) {
 	taskID := uuid.NewString()
 	job, err := db.CreateJob(r.Context(), h.DB, taskID, req.URL, req.Mode, req.pageLimit(), req.waitSeconds(), req.MainContent)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, r, err)
 		return
 	}
 	if err := queue.Enqueue(r.Context(), h.Redis, taskID); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, r, err)
 		return
 	}
 
@@ -66,16 +67,16 @@ func (h Handler) GetScrape(w http.ResponseWriter, r *http.Request) {
 	taskID := chi.URLParam(r, "taskID")
 	job, err := db.GetJob(r.Context(), h.DB, taskID)
 	if err != nil {
-		status := http.StatusInternalServerError
-		if strings.Contains(err.Error(), "not found") {
-			status = http.StatusNotFound
+		if errors.Is(err, db.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "job not found")
+			return
 		}
-		writeError(w, status, err.Error())
+		writeInternalError(w, r, err)
 		return
 	}
 	results, err := db.GetResults(r.Context(), h.DB, taskID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, jobDetailFrom(job, results))
@@ -86,12 +87,12 @@ func (h Handler) ListScrapes(w http.ResponseWriter, r *http.Request) {
 	offset := queryInt(r, "offset", 0)
 	jobs, err := db.ListJobs(r.Context(), h.DB, limit, offset)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, r, err)
 		return
 	}
 	total, err := db.CountJobs(r.Context(), h.DB)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, JobListResponse{
@@ -105,11 +106,11 @@ func (h Handler) ListScrapes(w http.ResponseWriter, r *http.Request) {
 func (h Handler) DeleteScrape(w http.ResponseWriter, r *http.Request) {
 	taskID := chi.URLParam(r, "taskID")
 	if err := db.DeleteJob(r.Context(), h.DB, taskID); err != nil {
-		status := http.StatusInternalServerError
-		if strings.Contains(err.Error(), "not found") {
-			status = http.StatusNotFound
+		if errors.Is(err, db.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "job not found")
+			return
 		}
-		writeError(w, status, err.Error())
+		writeInternalError(w, r, err)
 		return
 	}
 	pdf.CleanupImages(taskID, h.Config.PDFImagesDir)
@@ -119,7 +120,7 @@ func (h Handler) DeleteScrape(w http.ResponseWriter, r *http.Request) {
 func (h Handler) GetStats(w http.ResponseWriter, r *http.Request) {
 	stats, err := db.GetStats(r.Context(), h.DB)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, r, err)
 		return
 	}
 	depth, _ := queue.Length(r.Context(), h.Redis)
@@ -133,13 +134,13 @@ func (h Handler) GetStats(w http.ResponseWriter, r *http.Request) {
 func (h Handler) GetQueueStatus(w http.ResponseWriter, r *http.Request) {
 	stats, err := db.GetStats(r.Context(), h.DB)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, r, err)
 		return
 	}
 	depth, _ := queue.Length(r.Context(), h.Redis)
 	recent, err := db.GetRecentActivity(r.Context(), h.DB, 30)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, QueueStatusResponse{
@@ -155,7 +156,7 @@ func (h Handler) GetSystemInfo(w http.ResponseWriter, r *http.Request) {
 	health := h.health(r)
 	failed, err := db.GetFailedJobs(r.Context(), h.DB, 20)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, SystemInfoResponse{
@@ -192,7 +193,7 @@ func (h Handler) CleanupStorage(w http.ResponseWriter, r *http.Request) {
 		result, err = pdf.CleanupOrphanedImages(r.Context(), h.DB, h.Config.PDFImagesDir)
 	}
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, CleanupResponse{
@@ -279,4 +280,11 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 
 func writeError(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, errorResponse{Error: msg})
+}
+
+// writeInternalError logs the underlying error and returns a generic message
+// so database and filesystem details are not exposed to clients.
+func writeInternalError(w http.ResponseWriter, r *http.Request, err error) {
+	slog.Error("request failed", "method", r.Method, "path", r.URL.Path, "err", err)
+	writeError(w, http.StatusInternalServerError, "internal server error")
 }
