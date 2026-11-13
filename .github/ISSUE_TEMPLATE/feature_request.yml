@@ -1,0 +1,47 @@
+name: Feature request
+description: Propose a capability or a change in behaviour
+title: "feat: "
+labels: ["enhancement", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        For anything larger than a small change, describe the problem before the solution. Operational cost, security impact, and maintenance burden all count.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What can you not do today, or what is unnecessarily hard?
+      placeholder: I need to resume a crawl from a URL list instead of starting at one page.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: The API or behaviour you have in mind. Include request/response shapes if relevant.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Workarounds, other designs, or existing tools.
+    validations:
+      required: false
+  - type: textarea
+    id: cost
+    attributes:
+      label: Operational and security impact
+      description: Does it add a dependency, a network call, storage growth, a new endpoint, or a new way to reach internal services?
+    validations:
+      required: false
+  - type: checkboxes
+    id: contribution
+    attributes:
+      label: Contribution
+      options:
+        - label: I am willing to open a pull request for this.
+          required: false
+        - label: I checked that this is not covered by the known limits.
+          required: false

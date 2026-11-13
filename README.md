@@ -6,6 +6,7 @@
 [![Go](https://img.shields.io/badge/Go-1.25%2B-00ADD8?logo=go&logoColor=white)](go.mod)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql&logoColor=white)](docker-compose.yml)
 [![Redis](https://img.shields.io/badge/Redis-7-DC382D?logo=redis&logoColor=white)](docker-compose.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 It is API-only on purpose: there is no dashboard, no queue UI, and no browser extension. A job goes in over HTTP, a worker picks it up from Redis, Chromium (or Colly, or `pdftotext`) does the fetching, and PostgreSQL holds the result. Three fetch paths share one job model, one queue, and one set of metadata fields.
 
@@ -31,6 +32,8 @@ The interesting part is not the scraping. It is everything around it: a stream t
 14. [Design decisions that carry weight](#design-decisions-that-carry-weight)
 15. [Known limits](#known-limits)
 16. [Built with](#built-with)
+17. [Contributing](#contributing)
+18. [License](#license)
 
 ---
 
@@ -266,6 +269,8 @@ Scraping arbitrary URLs from your own server is an SSRF engine unless you stop i
 | Credentials | No proxy secrets belong in the repo. `.env` is ignored; `.env.example` contains placeholders only. |
 
 > The SSRF guard validates the submitted URL. Redirects are followed by Chromium/Colly rather than re-validated by the guard, so network-level egress rules are still the right defence in a hostile environment.
+
+Report vulnerabilities privately using the process in [SECURITY.md](SECURITY.md). Please do not open a public issue for a security problem.
 
 ---
 
@@ -579,11 +584,10 @@ curl -X POST http://localhost:9000/api/scrape \
 ### Tests and checks
 
 ```bash
-gofmt -l .
-go vet ./...
-go test -race ./...
-go build ./...
+make check
 ```
+
+That runs `gofmt -l .`, `go vet ./...`, `go test -race ./...`, and `go build ./...`. The individual targets are in the [Makefile](Makefile) if you prefer to run them separately.
 
 CI runs exactly those steps on `main` and on every pull request. There are unit tests for URL/SSRF validation, config parsing, metadata extraction, main-content stripping, block detection, rate limiting/auth, and PDF image serving. There is no database or Redis integration test in CI.
 
@@ -713,4 +717,19 @@ Submit a `scrape` job, confirm `used_proxy` and `response_time_ms` look sane, th
 | PostgreSQL 16 / Redis 7 | State and queue |
 | Docker Compose | Local and container deployment |
 
-No license file has been added to this repository yet.
+---
+
+## Contributing
+
+Contributions are welcome. Start with [CONTRIBUTING.md](CONTRIBUTING.md) for local setup, the checks that must pass, and commit conventions. Participation is covered by the [Code of Conduct](CODE_OF_CONDUCT.md).
+
+- Bug reports and feature requests use the issue templates.
+- Security issues go through [SECURITY.md](SECURITY.md), never a public issue.
+- Issues labelled `good first issue` are scoped for a first pull request.
+- Run `make check` before opening a PR; CI runs the same checks.
+
+## License
+
+[MIT](LICENSE) © 2026 kusalkalinga00.
+
+Use it, fork it, ship it. Attribution is the only requirement. By contributing you agree that your contribution is licensed under the same terms.

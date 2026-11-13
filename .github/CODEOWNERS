@@ -1,0 +1,4 @@
+# Default owner for everything in the repository.
+# Reviews are requested automatically; branch protection currently treats
+# them as advisory rather than required.
+* @kusalkalinga00
