@@ -177,7 +177,7 @@ func jobDetailFrom(job db.Job, results []db.JobResult, includeHTML bool) JobDeta
 		}
 		item := ResultItem{
 			URL:            r.URL,
-			HTMLBytes:      len(r.HTML),
+			HTMLBytes:      r.HTMLBytes,
 			ResponseTimeMS: r.ResponseTimeMS,
 			Metadata: ResultMetadata{
 				Title:         r.Title,

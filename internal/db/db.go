@@ -137,6 +137,7 @@ type JobResult struct {
 	JobID          string
 	URL            string
 	HTML           string
+	HTMLBytes      int
 	Title          *string
 	Description    *string
 	Language       *string
@@ -275,13 +276,21 @@ func InsertResult(ctx context.Context, pool *pgxpool.Pool, jobID, rawURL, html s
 	return err
 }
 
-func GetResults(ctx context.Context, pool *pgxpool.Pool, jobID string) ([]JobResult, error) {
-	rows, err := pool.Query(ctx, `
-		SELECT id, job_id, url, html, title, description, language, canonical_url, og_image, favicon,
+func GetResults(ctx context.Context, pool *pgxpool.Pool, jobID string, includeHTML bool) ([]JobResult, error) {
+	// Avoid transferring potentially multi-megabyte HTML when the caller only
+	// wants metadata.
+	htmlColumn := "''"
+	if includeHTML {
+		htmlColumn = "html"
+	}
+	query := fmt.Sprintf(`
+		SELECT id, job_id, url, %s, octet_length(html), title, description, language, canonical_url, og_image, favicon,
 			word_count, links_internal, links_external, images_count, headings, response_time_ms,
 			used_proxy, crawled_at, assets
 		FROM results WHERE job_id = $1 ORDER BY id
-	`, jobID)
+	`, htmlColumn)
+
+	rows, err := pool.Query(ctx, query, jobID)
 	if err != nil {
 		return nil, err
 	}
@@ -292,7 +301,7 @@ func GetResults(ctx context.Context, pool *pgxpool.Pool, jobID string) ([]JobRes
 		var r JobResult
 		var headings []byte
 		if err := rows.Scan(
-			&r.ID, &r.JobID, &r.URL, &r.HTML, &r.Title, &r.Description, &r.Language, &r.CanonicalURL, &r.OGImage, &r.Favicon,
+			&r.ID, &r.JobID, &r.URL, &r.HTML, &r.HTMLBytes, &r.Title, &r.Description, &r.Language, &r.CanonicalURL, &r.OGImage, &r.Favicon,
 			&r.WordCount, &r.LinksInternal, &r.LinksExternal, &r.ImagesCount, &headings, &r.ResponseTimeMS,
 			&r.UsedProxy, &r.CrawledAt, &r.AssetsJSON,
 		); err != nil {

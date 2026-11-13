@@ -90,12 +90,13 @@ func (h Handler) GetScrape(w http.ResponseWriter, r *http.Request) {
 		writeInternalError(w, r, err)
 		return
 	}
-	results, err := db.GetResults(r.Context(), h.DB, taskID)
+	includeHTML := queryBool(r, "include_html", false)
+	results, err := db.GetResults(r.Context(), h.DB, taskID, includeHTML)
 	if err != nil {
 		writeInternalError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, jobDetailFrom(job, results, queryBool(r, "include_html", false)))
+	writeJSON(w, http.StatusOK, jobDetailFrom(job, results, includeHTML))
 }
 
 // GetResultHTML streams the raw HTML for a single result. It is separate from
