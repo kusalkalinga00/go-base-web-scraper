@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -29,6 +30,7 @@ func Start(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client, cfg confi
 }
 
 func loop(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client, cfg config.Config, workerID int) {
+	consumer := fmt.Sprintf("worker-%d", workerID)
 	for {
 		select {
 		case <-ctx.Done():
@@ -37,7 +39,17 @@ func loop(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client, cfg config
 		default:
 		}
 
-		taskID, err := queue.Dequeue(ctx, rdb, 5*time.Second)
+		// Take back jobs whose workers died before acknowledging them.
+		claimed, err := queue.Reclaim(ctx, rdb, consumer, 1)
+		if err != nil {
+			slog.Warn("Reclaim error", "worker", workerID, "err", err)
+		}
+		for _, msg := range claimed {
+			slog.Info("Reclaimed job", "worker", workerID, "task_id", msg.TaskID)
+			runJob(ctx, pool, cfg, workerID, rdb, msg)
+		}
+
+		msg, err := queue.Dequeue(ctx, rdb, consumer, 5*time.Second)
 		if err != nil {
 			if errors.Is(err, redis.Nil) || errors.Is(err, context.Canceled) {
 				continue
@@ -47,8 +59,17 @@ func loop(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client, cfg config
 			continue
 		}
 
-		slog.Info("Picked up job", "worker", workerID, "task_id", taskID)
-		process(ctx, pool, cfg, workerID, taskID)
+		slog.Info("Picked up job", "worker", workerID, "task_id", msg.TaskID)
+		runJob(ctx, pool, cfg, workerID, rdb, msg)
+	}
+}
+
+func runJob(ctx context.Context, pool *pgxpool.Pool, cfg config.Config, workerID int, rdb *redis.Client, msg queue.Message) {
+	process(ctx, pool, cfg, workerID, msg.TaskID)
+	// Acknowledge even after a failed job: retrying it immediately would loop
+	// forever. Failed jobs stay visible in the database.
+	if err := queue.Ack(ctx, rdb, msg.ID); err != nil {
+		slog.Error("Ack error", "worker", workerID, "task_id", msg.TaskID, "err", err)
 	}
 }
 
