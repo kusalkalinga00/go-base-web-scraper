@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/kusalkalinga00/go-base-web-scraper/security/advisories/new
+    about: Report security issues privately. Do not open a public issue.
+  - name: Documentation and troubleshooting
+    url: https://github.com/kusalkalinga00/go-base-web-scraper#troubleshooting
+    about: Check the README before filing a bug.
+  - name: Contributing guide
+    url: https://github.com/kusalkalinga00/go-base-web-scraper/blob/main/CONTRIBUTING.md
+    about: Setup, checks, and pull request expectations.

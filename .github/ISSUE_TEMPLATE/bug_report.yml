@@ -1,0 +1,99 @@
+name: Bug report
+description: Something does not work as documented
+title: "bug: "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. **Do not paste credentials, proxy URLs with passwords, or private data.** For security issues, use the [security policy](https://github.com/kusalkalinga00/go-base-web-scraper/security/policy) instead of a public issue.
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      description: Release tag, image tag, or `git rev-parse --short HEAD`.
+      placeholder: v0.1.0 / 428893b
+    validations:
+      required: true
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: How are you running it?
+      options:
+        - Docker Compose
+        - Local Go binary
+        - Kubernetes or another orchestrator
+        - Other
+    validations:
+      required: true
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Job mode
+      options:
+        - scrape
+        - crawl
+        - http
+        - PDF
+        - not job-specific (API, queue, startup)
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Include the request body (with the target URL) and the response or job status.
+      placeholder: |
+        POST /api/scrape {"url":"https://example.com","mode":"crawl","limit":5}
+        -> 202, job stays queued for 10 minutes
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. docker compose up --build
+        2. submit the request above
+        3. poll the job
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Redact secrets, tokens, and private URLs. Worker and API logs help.
+      render: text
+    validations:
+      required: false
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, architecture, Go version, Chromium version, Redis/Postgres versions.
+      placeholder: macOS 15 arm64, Go 1.25, Chromium 140, Redis 7, Postgres 16
+    validations:
+      required: false
+  - type: textarea
+    id: config
+    attributes:
+      label: Non-secret configuration
+      description: Relevant environment variables. Never include API keys or proxy passwords.
+      render: text
+    validations:
+      required: false
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched existing issues and the troubleshooting section.
+          required: true
+        - label: I removed credentials and private data from this report.
+          required: true
