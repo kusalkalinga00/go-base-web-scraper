@@ -207,15 +207,22 @@ func (h Handler) HealthCheck(w http.ResponseWriter, r *http.Request) {
 
 func (h Handler) ServePDFImage(w http.ResponseWriter, r *http.Request) {
 	taskID := chi.URLParam(r, "taskID")
-	filename := chi.URLParam(r, "filename")
-	safe := filepath.Base(filename)
-	if safe == "" || safe == "." || strings.Contains(safe, "..") {
+	// Validate the task ID before it is used as a path segment. Chi does not
+	// clean URL paths, so an unvalidated ".." here would escape the images
+	// directory.
+	if err := uuid.Validate(taskID); err != nil {
+		http.Error(w, "bad task id", http.StatusBadRequest)
+		return
+	}
+
+	filename := filepath.Base(chi.URLParam(r, "filename"))
+	if filename == "" || filename == "." || filename == ".." || strings.ContainsAny(filename, `/\`) {
 		http.Error(w, "bad filename", http.StatusBadRequest)
 		return
 	}
 
-	path := filepath.Join(pdf.ImagesDir(h.Config.PDFImagesDir), taskID, safe)
-	bytes, err := os.ReadFile(path)
+	path := filepath.Join(pdf.ImagesDir(h.Config.PDFImagesDir), taskID, filename)
+	file, err := os.Open(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			http.NotFound(w, r)
@@ -224,20 +231,14 @@ func (h Handler) ServePDFImage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "read error", http.StatusInternalServerError)
 		return
 	}
+	defer file.Close()
 
-	contentType := "application/octet-stream"
-	switch strings.ToLower(filepath.Ext(safe)) {
-	case ".png":
-		contentType = "image/png"
-	case ".jpg", ".jpeg":
-		contentType = "image/jpeg"
-	case ".gif":
-		contentType = "image/gif"
-	case ".webp":
-		contentType = "image/webp"
+	info, err := file.Stat()
+	if err != nil || info.IsDir() {
+		http.NotFound(w, r)
+		return
 	}
-	w.Header().Set("Content-Type", contentType)
-	_, _ = w.Write(bytes)
+	http.ServeContent(w, r, filename, info.ModTime(), file)
 }
 
 func (h Handler) health(r *http.Request) HealthResponse {
