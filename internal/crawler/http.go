@@ -9,8 +9,6 @@ import (
 	"time"
 
 	"github.com/gocolly/colly/v2"
-
-	"go-base-web-scraper/internal/metadata"
 )
 
 const (
@@ -80,10 +78,7 @@ func CrawlHTTP(ctx context.Context, startURL string, limit uint, mainContent boo
 			elapsed = int(time.Since(start).Milliseconds())
 		}
 
-		meta := metadata.Extract(html, r.Request.URL.String())
-		if mainContent {
-			html = MainContentHTML(html)
-		}
+		meta, html := extractHTML(html, r.Request.URL.String(), mainContent)
 
 		mu.Lock()
 		results = append(results, CrawlResult{

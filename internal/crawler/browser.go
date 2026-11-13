@@ -214,10 +214,7 @@ func fetchViaProxy(ctx context.Context, rawURL string, waitSecs uint64, proxyURL
 }
 
 func buildResult(rawURL, html string, mainContent bool, elapsed int, usedProxy bool) CrawlResult {
-	meta := metadata.Extract(html, rawURL)
-	if mainContent {
-		html = MainContentHTML(html)
-	}
+	meta, html := extractHTML(html, rawURL, mainContent)
 	return CrawlResult{
 		URL:            rawURL,
 		HTML:           html,
