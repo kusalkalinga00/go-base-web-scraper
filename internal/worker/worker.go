@@ -15,6 +15,7 @@ import (
 	"go-base-web-scraper/internal/db"
 	"go-base-web-scraper/internal/pdf"
 	"go-base-web-scraper/internal/queue"
+	"go-base-web-scraper/internal/urlguard"
 )
 
 func Start(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client, cfg config.Config) {
@@ -55,6 +56,15 @@ func process(ctx context.Context, pool *pgxpool.Pool, cfg config.Config, workerI
 	job, err := db.GetJob(ctx, pool, taskID)
 	if err != nil {
 		slog.Error("Job fetch error", "worker", workerID, "err", err)
+		return
+	}
+
+	// Re-validate here as well: jobs can be queued by older API versions or
+	// injected straight into Redis.
+	if _, err := urlguard.Validate(ctx, job.URL); err != nil {
+		msg := err.Error()
+		slog.Error("Rejected unsafe job", "task_id", taskID, "err", err)
+		_ = db.UpdateJobStatus(ctx, pool, taskID, "failed", &msg)
 		return
 	}
 

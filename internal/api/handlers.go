@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -19,6 +18,7 @@ import (
 	"go-base-web-scraper/internal/db"
 	"go-base-web-scraper/internal/pdf"
 	"go-base-web-scraper/internal/queue"
+	"go-base-web-scraper/internal/urlguard"
 )
 
 type Handler struct {
@@ -39,8 +39,8 @@ func (h Handler) SubmitScrape(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "mode must be 'scrape', 'crawl', or 'http'")
 		return
 	}
-	if _, err := url.ParseRequestURI(req.URL); err != nil {
-		writeError(w, http.StatusBadRequest, "Invalid URL")
+	if _, err := urlguard.Validate(r.Context(), req.URL); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
