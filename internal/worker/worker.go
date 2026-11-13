@@ -104,7 +104,13 @@ func loop(ctx context.Context, stop <-chan struct{}, pool *pgxpool.Pool, rdb *re
 				continue
 			}
 			slog.Error("Dequeue error", "worker", workerID, "err", err)
-			time.Sleep(5 * time.Second)
+			select {
+			case <-time.After(5 * time.Second):
+			case <-ctx.Done():
+				return
+			case <-stop:
+				return
+			}
 			continue
 		}
 

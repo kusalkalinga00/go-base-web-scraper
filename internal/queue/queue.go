@@ -69,29 +69,37 @@ func Enqueue(ctx context.Context, client *redis.Client, taskID string) error {
 // Messages stay pending until Ack is called, so a worker crash does not lose
 // the job: another worker reclaims it after reclaimIdle.
 func Dequeue(ctx context.Context, client *redis.Client, consumer string, block time.Duration) (Message, error) {
-	streams, err := client.XReadGroup(ctx, &redis.XReadGroupArgs{
-		Group:    ConsumerGroup,
-		Consumer: consumer,
-		Streams:  []string{StreamKey, ">"},
-		Count:    1,
-		Block:    block,
-	}).Result()
-	if err != nil {
-		if strings.Contains(err.Error(), "NOGROUP") {
-			if gerr := ensureGroup(ctx, client); gerr == nil {
-				return Dequeue(ctx, client, consumer, block)
+	var lastErr error
+	for attempt := 0; attempt < 2; attempt++ {
+		streams, err := client.XReadGroup(ctx, &redis.XReadGroupArgs{
+			Group:    ConsumerGroup,
+			Consumer: consumer,
+			Streams:  []string{StreamKey, ">"},
+			Count:    1,
+			Block:    block,
+		}).Result()
+		if err != nil {
+			lastErr = err
+			// The stream may have been flushed; recreate the consumer group
+			// and retry once.
+			if attempt == 0 && strings.Contains(err.Error(), "NOGROUP") {
+				if gerr := ensureGroup(ctx, client); gerr != nil {
+					return Message{}, err
+				}
+				continue
+			}
+			return Message{}, err
+		}
+		for _, stream := range streams {
+			for _, m := range stream.Messages {
+				if taskID, ok := m.Values["task_id"].(string); ok && taskID != "" {
+					return Message{ID: m.ID, TaskID: taskID}, nil
+				}
 			}
 		}
-		return Message{}, err
+		return Message{}, redis.Nil
 	}
-	for _, stream := range streams {
-		for _, m := range stream.Messages {
-			if taskID, ok := m.Values["task_id"].(string); ok && taskID != "" {
-				return Message{ID: m.ID, TaskID: taskID}, nil
-			}
-		}
-	}
-	return Message{}, redis.Nil
+	return Message{}, lastErr
 }
 
 // Ack marks a message as processed and removes it from the stream.
