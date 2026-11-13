@@ -15,6 +15,8 @@ func NewRouter(h Handler) http.Handler {
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Logger)
 	r.Use(middleware.Compress(5))
+	r.Use(APIKeyAuth(h.Config.APIKey))
+	r.Use(RateLimit(h.Config.RateLimitPerMinute))
 	r.Use(cors.Handler(cors.Options{
 		AllowedOrigins: []string{"*"},
 		AllowedMethods: []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},

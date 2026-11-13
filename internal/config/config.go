@@ -28,17 +28,19 @@ type RetryConfig struct {
 }
 
 type Config struct {
-	Port          uint16
-	RedisURL      string
-	DatabaseURL   string
-	ProxyURL      *string
-	ProxyMode     ProxyMode
-	MaxWorkers    int
-	Retry         RetryConfig
-	PDFImagesDir  string
-	ChromePath    string
-	JobTimeout    time.Duration
-	ShutdownGrace time.Duration
+	Port               uint16
+	RedisURL           string
+	DatabaseURL        string
+	ProxyURL           *string
+	ProxyMode          ProxyMode
+	MaxWorkers         int
+	Retry              RetryConfig
+	PDFImagesDir       string
+	ChromePath         string
+	JobTimeout         time.Duration
+	ShutdownGrace      time.Duration
+	APIKey             string
+	RateLimitPerMinute int
 }
 
 func FromEnv() Config {
@@ -56,10 +58,12 @@ func FromEnv() Config {
 			ProxyRetries:   envUint("PROXY_RETRIES", 1),
 			RetryDelaySecs: envUint64("RETRY_DELAY_SECS", 20),
 		},
-		PDFImagesDir:  envString("PDF_IMAGES_DIR", "data/pdf_images"),
-		ChromePath:    os.Getenv("CHROME_PATH"),
-		JobTimeout:    time.Duration(envUint64("JOB_TIMEOUT_SECS", 300)) * time.Second,
-		ShutdownGrace: time.Duration(envUint64("SHUTDOWN_GRACE_SECS", 20)) * time.Second,
+		PDFImagesDir:       envString("PDF_IMAGES_DIR", "data/pdf_images"),
+		ChromePath:         os.Getenv("CHROME_PATH"),
+		JobTimeout:         time.Duration(envUint64("JOB_TIMEOUT_SECS", 300)) * time.Second,
+		ShutdownGrace:      time.Duration(envUint64("SHUTDOWN_GRACE_SECS", 20)) * time.Second,
+		APIKey:             os.Getenv("API_KEY"),
+		RateLimitPerMinute: envInt("RATE_LIMIT_PER_MINUTE", 120),
 	}
 }
 
