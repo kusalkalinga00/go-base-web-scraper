@@ -266,7 +266,12 @@ func (h Handler) CleanupStorage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h Handler) HealthCheck(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, h.health(r))
+	health := h.health(r)
+	status := http.StatusOK
+	if health.Status != "ok" {
+		status = http.StatusServiceUnavailable
+	}
+	writeJSON(w, status, health)
 }
 
 func (h Handler) ServePDFImage(w http.ResponseWriter, r *http.Request) {
