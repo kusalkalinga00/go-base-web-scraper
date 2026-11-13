@@ -43,7 +43,7 @@ func main() {
 
 	slog.Info("Connected to Redis and PostgreSQL")
 
-	worker.Start(ctx, pool, rdb, cfg)
+	workers := worker.Start(ctx, pool, rdb, cfg)
 
 	handler := api.NewRouter(api.Handler{
 		DB:     pool,
@@ -73,6 +73,15 @@ func main() {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	_ = srv.Shutdown(shutdownCtx)
+
+	// Stop dequeuing new work but let in-flight jobs finish within the grace
+	// period. Interrupted jobs are requeued on the next start.
+	workers.Stop()
+	graceCtx, cancelGrace := context.WithTimeout(context.Background(), cfg.ShutdownGrace)
+	defer cancelGrace()
+	if err := workers.Wait(graceCtx); err != nil {
+		slog.Warn("Workers did not stop before the shutdown deadline", "err", err)
+	}
 }
 
 func initLogger() {

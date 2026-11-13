@@ -135,6 +135,47 @@ func Reclaim(ctx context.Context, client *redis.Client, consumer string, count i
 	}
 }
 
+// RecoverPending requeues messages that were pending when the process last
+// stopped. Call it once at startup, before consumers begin reading. It moves
+// each pending entry back to the head of the stream so normal consumers pick
+// it up, then removes the original entry.
+func RecoverPending(ctx context.Context, client *redis.Client) (int, error) {
+	recovered := 0
+	start := "0-0"
+	for {
+		messages, next, err := client.XAutoClaim(ctx, &redis.XAutoClaimArgs{
+			Stream:   StreamKey,
+			Group:    ConsumerGroup,
+			Consumer: "recovery",
+			MinIdle:  0,
+			Start:    start,
+			Count:    100,
+		}).Result()
+		if err != nil {
+			if strings.Contains(err.Error(), "NOGROUP") {
+				return recovered, nil
+			}
+			return recovered, err
+		}
+		for _, m := range messages {
+			taskID, ok := m.Values["task_id"].(string)
+			if ok && taskID != "" {
+				if err := Enqueue(ctx, client, taskID); err != nil {
+					return recovered, err
+				}
+				recovered++
+			}
+			if err := Ack(ctx, client, m.ID); err != nil {
+				return recovered, err
+			}
+		}
+		if next == "0-0" || next == "" || len(messages) == 0 {
+			return recovered, nil
+		}
+		start = next
+	}
+}
+
 // Length reports how many tasks are queued or currently being processed.
 func Length(ctx context.Context, client *redis.Client) (int64, error) {
 	return client.XLen(ctx, StreamKey).Result()

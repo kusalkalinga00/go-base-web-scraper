@@ -240,6 +240,16 @@ func UpdateJobStatus(ctx context.Context, pool *pgxpool.Pool, id, status string,
 	}
 }
 
+// ResetRunningJobs marks jobs left in the running state by a previous process
+// as queued again. Their queue messages are recovered separately.
+func ResetRunningJobs(ctx context.Context, pool *pgxpool.Pool) (int64, error) {
+	tag, err := pool.Exec(ctx, `UPDATE jobs SET status = 'queued', started_at = NULL WHERE status = 'running'`)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
+}
+
 func UpdatePagesCrawled(ctx context.Context, pool *pgxpool.Pool, id string, count int) error {
 	_, err := pool.Exec(ctx, `UPDATE jobs SET pages_crawled = $1 WHERE id = $2`, count, id)
 	return err
