@@ -40,6 +40,10 @@ func (h Handler) SubmitScrape(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	req.defaults()
+	if err := req.validate(); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 
 	if req.Mode != "scrape" && req.Mode != "crawl" && req.Mode != "http" {
 		writeError(w, http.StatusBadRequest, "mode must be 'scrape', 'crawl', or 'http'")
@@ -88,8 +92,8 @@ func (h Handler) GetScrape(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h Handler) ListScrapes(w http.ResponseWriter, r *http.Request) {
-	limit := queryInt(r, "limit", 50)
-	offset := queryInt(r, "offset", 0)
+	limit := min(max(queryInt(r, "limit", 50), 1), MaxListLimit)
+	offset := max(queryInt(r, "offset", 0), 0)
 	jobs, err := db.ListJobs(r.Context(), h.DB, limit, offset)
 	if err != nil {
 		writeInternalError(w, r, err)

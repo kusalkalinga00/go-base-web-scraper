@@ -2,10 +2,20 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"go-base-web-scraper/internal/crawler"
 	"go-base-web-scraper/internal/db"
+)
+
+const (
+	// MaxPageLimit caps how many pages one crawl can fetch.
+	MaxPageLimit = 1000
+	// MaxWaitSeconds caps the JS wait applied to every browser navigation.
+	MaxWaitSeconds = 60
+	// MaxListLimit caps the page size of list endpoints.
+	MaxListLimit = 200
 )
 
 type ScrapeRequest struct {
@@ -14,6 +24,16 @@ type ScrapeRequest struct {
 	Limit       *int   `json:"limit"`
 	WaitSeconds *int   `json:"wait_seconds"`
 	MainContent bool   `json:"main_content"`
+}
+
+func (r ScrapeRequest) validate() error {
+	if r.Limit != nil && (*r.Limit < 1 || *r.Limit > MaxPageLimit) {
+		return fmt.Errorf("limit must be between 1 and %d", MaxPageLimit)
+	}
+	if r.WaitSeconds != nil && (*r.WaitSeconds < 0 || *r.WaitSeconds > MaxWaitSeconds) {
+		return fmt.Errorf("wait_seconds must be between 0 and %d", MaxWaitSeconds)
+	}
+	return nil
 }
 
 func (r *ScrapeRequest) defaults() {
