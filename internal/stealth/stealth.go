@@ -180,10 +180,9 @@ func Apply(page *rod.Page, cfg Config) error {
 	}
 
 	// Skip images, fonts and media: they are not part of the extracted HTML
-	// and are the slowest part of most page loads.
-	if err := page.EnableDomain(proto.NetworkEnable{}); err != nil {
-		return fmt.Errorf("enable network domain: %w", err)
-	}
+	// and are the slowest part of most page loads. EnableDomain panics on
+	// failure, so there is no error to handle here.
+	page.EnableDomain(proto.NetworkEnable{})
 	if err := page.SetBlockedURLs(blockedResourcePatterns); err != nil {
 		return fmt.Errorf("block heavy resources: %w", err)
 	}
