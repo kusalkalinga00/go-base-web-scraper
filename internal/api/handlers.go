@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -227,28 +228,40 @@ func (h Handler) CleanupStorage(w http.ResponseWriter, r *http.Request) {
 	if mode == "" {
 		mode = "orphaned"
 	}
-	if mode != "orphaned" && mode != "all" {
-		writeError(w, http.StatusBadRequest, "mode must be 'orphaned' or 'all'")
-		return
+	switch mode {
+	case "all", "orphaned":
+		var (
+			result pdf.CleanupResult
+			err    error
+		)
+		if mode == "all" {
+			result, err = pdf.CleanupAllImages(h.Config.PDFImagesDir)
+		} else {
+			result, err = pdf.CleanupOrphanedImages(r.Context(), h.DB, h.Config.PDFImagesDir)
+		}
+		if err != nil {
+			writeInternalError(w, r, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, CleanupResponse{
+			RemovedCount: result.RemovedCount,
+			FreedBytes:   result.FreedBytes,
+		})
+	case "expired":
+		days := min(max(queryInt(r, "days", 30), 1), 3650)
+		ids, err := db.DeleteJobsBefore(r.Context(), h.DB, time.Now().AddDate(0, 0, -days))
+		if err != nil {
+			writeInternalError(w, r, err)
+			return
+		}
+		for _, id := range ids {
+			pdf.CleanupImages(id, h.Config.PDFImagesDir)
+		}
+		slog.Info("Deleted expired jobs", "count", len(ids), "days", days)
+		writeJSON(w, http.StatusOK, CleanupResponse{JobsRemoved: len(ids)})
+	default:
+		writeError(w, http.StatusBadRequest, "mode must be 'orphaned', 'all', or 'expired'")
 	}
-
-	var (
-		result pdf.CleanupResult
-		err    error
-	)
-	if mode == "all" {
-		result, err = pdf.CleanupAllImages(h.Config.PDFImagesDir)
-	} else {
-		result, err = pdf.CleanupOrphanedImages(r.Context(), h.DB, h.Config.PDFImagesDir)
-	}
-	if err != nil {
-		writeInternalError(w, r, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, CleanupResponse{
-		RemovedCount: result.RemovedCount,
-		FreedBytes:   result.FreedBytes,
-	})
 }
 
 func (h Handler) HealthCheck(w http.ResponseWriter, r *http.Request) {

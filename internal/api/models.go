@@ -154,6 +154,7 @@ type SystemInfoResponse struct {
 type CleanupResponse struct {
 	RemovedCount uint32 `json:"removed_count"`
 	FreedBytes   uint64 `json:"freed_bytes"`
+	JobsRemoved  int    `json:"jobs_removed,omitempty"`
 }
 
 type errorResponse struct {
