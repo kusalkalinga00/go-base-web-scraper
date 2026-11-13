@@ -150,6 +150,7 @@ Returns status, timestamps, metadata, and assets. Raw HTML is omitted by default
   "duration_ms": 11840,
   "results": [
     {
+      "id": 1,
       "url": "https://example.com/article",
       "html": "<!DOCTYPE html>...",
       "html_bytes": 1328897,

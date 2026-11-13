@@ -87,6 +87,7 @@ type ResultMetadata struct {
 }
 
 type ResultItem struct {
+	ID             int64           `json:"id"`
 	URL            string          `json:"url"`
 	HTML           string          `json:"html,omitempty"`
 	HTMLBytes      int             `json:"html_bytes"`
@@ -176,6 +177,7 @@ func jobDetailFrom(job db.Job, results []db.JobResult, includeHTML bool) JobDeta
 			headings = []string{}
 		}
 		item := ResultItem{
+			ID:             r.ID,
 			URL:            r.URL,
 			HTMLBytes:      r.HTMLBytes,
 			ResponseTimeMS: r.ResponseTimeMS,
