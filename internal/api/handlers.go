@@ -3,6 +3,8 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -92,7 +94,41 @@ func (h Handler) GetScrape(w http.ResponseWriter, r *http.Request) {
 		writeInternalError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, jobDetailFrom(job, results))
+	writeJSON(w, http.StatusOK, jobDetailFrom(job, results, queryBool(r, "include_html", false)))
+}
+
+// GetResultHTML streams the raw HTML for a single result. It is separate from
+// the job endpoint so callers can fetch metadata without downloading
+// megabytes of markup.
+func (h Handler) GetResultHTML(w http.ResponseWriter, r *http.Request) {
+	taskID := chi.URLParam(r, "taskID")
+	if err := uuid.Validate(taskID); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid task id")
+		return
+	}
+	resultID, err := strconv.ParseInt(chi.URLParam(r, "resultID"), 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid result id")
+		return
+	}
+
+	html, err := db.GetResultHTML(r.Context(), h.DB, taskID, resultID)
+	if err != nil {
+		if errors.Is(err, db.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "result not found")
+			return
+		}
+		writeInternalError(w, r, err)
+		return
+	}
+
+	// Scraped markup is untrusted. Send it as an attachment with a sandboxed
+	// CSP so it cannot run scripts on the API origin.
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Content-Security-Policy", "sandbox; default-src 'none'")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="result-%d.html"`, resultID))
+	_, _ = io.WriteString(w, html)
 }
 
 func (h Handler) ListScrapes(w http.ResponseWriter, r *http.Request) {
@@ -283,6 +319,17 @@ func queryInt(r *http.Request, key string, fallback int) int {
 		return fallback
 	}
 	return n
+}
+
+func queryBool(r *http.Request, key string, fallback bool) bool {
+	switch strings.ToLower(r.URL.Query().Get(key)) {
+	case "1", "true", "yes":
+		return true
+	case "0", "false", "no":
+		return false
+	default:
+		return fallback
+	}
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

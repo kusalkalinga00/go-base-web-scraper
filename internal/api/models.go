@@ -88,7 +88,7 @@ type ResultMetadata struct {
 
 type ResultItem struct {
 	URL            string          `json:"url"`
-	HTML           string          `json:"html"`
+	HTML           string          `json:"html,omitempty"`
 	HTMLBytes      int             `json:"html_bytes"`
 	ResponseTimeMS int             `json:"response_time_ms"`
 	Metadata       ResultMetadata  `json:"metadata"`
@@ -160,7 +160,7 @@ type errorResponse struct {
 	Error string `json:"error"`
 }
 
-func jobDetailFrom(job db.Job, results []db.JobResult) JobDetailResponse {
+func jobDetailFrom(job db.Job, results []db.JobResult, includeHTML bool) JobDetailResponse {
 	items := make([]ResultItem, 0, len(results))
 	for _, r := range results {
 		assets := []crawler.Asset{}
@@ -174,9 +174,8 @@ func jobDetailFrom(job db.Job, results []db.JobResult) JobDetailResponse {
 		if headings == nil {
 			headings = []string{}
 		}
-		items = append(items, ResultItem{
+		item := ResultItem{
 			URL:            r.URL,
-			HTML:           r.HTML,
 			HTMLBytes:      len(r.HTML),
 			ResponseTimeMS: r.ResponseTimeMS,
 			Metadata: ResultMetadata{
@@ -195,7 +194,11 @@ func jobDetailFrom(job db.Job, results []db.JobResult) JobDetailResponse {
 				CrawledAt:     r.CrawledAt.UTC().Format(time.RFC3339),
 			},
 			Assets: assets,
-		})
+		}
+		if includeHTML {
+			item.HTML = r.HTML
+		}
+		items = append(items, item)
 	}
 
 	return JobDetailResponse{

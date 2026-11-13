@@ -155,14 +155,14 @@ type JobResult struct {
 }
 
 type JobStats struct {
-	Total              int64   `json:"total"`
-	Queued             int64   `json:"queued"`
-	Running            int64   `json:"running"`
-	Completed          int64   `json:"completed"`
-	Failed             int64   `json:"failed"`
-	TotalPagesCrawled  int64   `json:"total_pages_crawled"`
-	AvgResponseTimeMS  float64 `json:"avg_response_time_ms"`
-	TotalResults       int64   `json:"total_results"`
+	Total             int64   `json:"total"`
+	Queued            int64   `json:"queued"`
+	Running           int64   `json:"running"`
+	Completed         int64   `json:"completed"`
+	Failed            int64   `json:"failed"`
+	TotalPagesCrawled int64   `json:"total_pages_crawled"`
+	AvgResponseTimeMS float64 `json:"avg_response_time_ms"`
+	TotalResults      int64   `json:"total_results"`
 }
 
 type RecentActivity struct {
@@ -310,6 +310,16 @@ func GetResults(ctx context.Context, pool *pgxpool.Pool, jobID string) ([]JobRes
 		results = []JobResult{}
 	}
 	return results, rows.Err()
+}
+
+// GetResultHTML returns the stored markup for one result.
+func GetResultHTML(ctx context.Context, pool *pgxpool.Pool, jobID string, resultID int64) (string, error) {
+	var html string
+	err := pool.QueryRow(ctx, `SELECT html FROM results WHERE id = $1 AND job_id = $2`, resultID, jobID).Scan(&html)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", fmt.Errorf("result %d: %w", resultID, ErrNotFound)
+	}
+	return html, err
 }
 
 func GetStats(ctx context.Context, pool *pgxpool.Pool) (JobStats, error) {
