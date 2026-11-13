@@ -150,9 +150,28 @@ func retryNavigate(ctx context.Context, rawURL string, waitSecs uint64, proxyURL
 	if attempts == 0 {
 		attempts = 1
 	}
+
+	// Launch once and reuse the browser and page across attempts. Launching
+	// Chromium per attempt costs seconds and hundreds of megabytes.
+	cfg := stealth.NewConfig()
+	cfg.ChromePath = chromePath
+	if proxyURL != nil {
+		cfg = cfg.WithProxy(proxyURL)
+	}
+	session, err := stealth.Launch(cfg)
+	if err != nil {
+		return "", err
+	}
+	defer session.Close()
+
+	page, err := stealth.NewPage(session, cfg)
+	if err != nil {
+		return "", err
+	}
+
 	var lastErr error
 	for attempt := uint(1); attempt <= attempts; attempt++ {
-		html, err := navigateOnce(ctx, rawURL, waitSecs, proxyURL, chromePath)
+		html, err := stealth.Navigate(ctx, page, rawURL, waitSecs, cfg)
 		if err == nil {
 			if blocked, reason := proxy.BlockReason(html, nil); blocked {
 				kind := "direct"
@@ -187,25 +206,6 @@ func retryNavigate(ctx context.Context, rawURL string, waitSecs uint64, proxyURL
 		}
 	}
 	return "", lastErr
-}
-
-func navigateOnce(ctx context.Context, rawURL string, waitSecs uint64, proxyURL *string, chromePath string) (string, error) {
-	cfg := stealth.NewConfig()
-	cfg.ChromePath = chromePath
-	if proxyURL != nil {
-		cfg = cfg.WithProxy(proxyURL)
-	}
-	session, err := stealth.Launch(cfg)
-	if err != nil {
-		return "", err
-	}
-	defer session.Close()
-
-	page, err := stealth.NewPage(session, cfg)
-	if err != nil {
-		return "", err
-	}
-	return stealth.Navigate(ctx, page, rawURL, waitSecs, cfg)
 }
 
 func fetchViaProxy(ctx context.Context, rawURL string, waitSecs uint64, proxyURL *string, retry config.RetryConfig, chromePath string) (string, error) {
