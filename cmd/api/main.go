@@ -55,6 +55,9 @@ func main() {
 		Addr:              fmt.Sprintf("0.0.0.0:%d", cfg.Port),
 		Handler:           handler,
 		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      2 * time.Minute,
+		IdleTimeout:       60 * time.Second,
 	}
 
 	go func() {
