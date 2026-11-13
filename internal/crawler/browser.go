@@ -251,7 +251,7 @@ func extractSameHostLinks(html, pageURL, baseHost string, visited map[string]str
 		if abs.Scheme != "http" && abs.Scheme != "https" {
 			return
 		}
-		if abs.Hostname() != baseHost {
+		if !sameHost(abs.Hostname(), baseHost) {
 			return
 		}
 		abs.Fragment = ""

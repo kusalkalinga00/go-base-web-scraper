@@ -28,9 +28,14 @@ func CrawlHTTP(ctx context.Context, startURL string, limit uint, mainContent boo
 		return []CrawlResult{}
 	}
 
+	// Allow both the bare host and its www variant. Passing parsed.Host
+	// (which may include a port) or blindly prefixing "www." breaks matching.
+	allowed := []string{parsed.Hostname()}
+	if !strings.HasPrefix(strings.ToLower(parsed.Hostname()), "www.") {
+		allowed = append(allowed, "www."+parsed.Hostname())
+	}
 	c := colly.NewCollector(
-		colly.AllowedDomains(parsed.Host, "www."+parsed.Hostname(), parsed.Hostname()),
-		colly.MaxDepth(int(limit)+2),
+		colly.AllowedDomains(allowed...),
 		colly.Async(false),
 	)
 	c.UserAgent = defaultUserAgent
@@ -108,7 +113,7 @@ func CrawlHTTP(ctx context.Context, startURL string, limit uint, mainContent boo
 		if err != nil {
 			return
 		}
-		if abs.Hostname() != parsed.Hostname() {
+		if !sameHost(abs.Hostname(), parsed.Hostname()) {
 			return
 		}
 		if isSkippablePath(abs.Path) {
