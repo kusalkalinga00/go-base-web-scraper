@@ -4,7 +4,7 @@ go 1.25.11
 
 require (
 	github.com/PuerkitoBio/goquery v1.13.0
-	github.com/go-chi/chi/v5 v5.3.2
+	github.com/go-chi/chi/v5 v5.4.0
 	github.com/go-chi/cors v1.2.2
 	github.com/go-rod/rod v0.116.2
 	github.com/go-rod/stealth v0.4.9
